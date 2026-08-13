@@ -2,3 +2,4 @@ streamlit
 spleeter
 pydub
 protobuf==3.20.3
+numpy==1.23.5
