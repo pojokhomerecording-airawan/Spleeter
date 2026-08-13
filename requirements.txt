@@ -1,3 +1,4 @@
 streamlit
 spleeter
 pydub
+protobuf==3.20.3
