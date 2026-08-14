@@ -1,5 +1,5 @@
 import streamlit as st
-import yt_dlp
+from pytubefix import YouTube
 import librosa
 import numpy as np
 import matplotlib.pyplot as plt
@@ -42,50 +42,29 @@ if st.button("🚀 Analisis BPM & Waveform", type="primary"):
     if not url:
         st.warning("⚠️ Silakan masukkan URL YouTube terlebih dahulu.")
     else:
-        output_base = "temp_audio"
-        mp3_file = f"{output_base}.mp3"
+        audio_file = "temp_audio.m4a"
         
-        # Hapus file sisa dari proses sebelumnya jika ada
-        if os.path.exists(mp3_file):
+        # Hapus file sisa jika ada
+        if os.path.exists(audio_file):
             try:
-                os.remove(mp3_file)
+                os.remove(audio_file)
             except Exception:
                 pass
 
         try:
-            # 1. Unduh Audio via yt-dlp (DILENGKAPI FIX HTTP 403 FORBIDDEN)
-            with st.spinner("📥 1/3 Mengunduh audio dari YouTube..."):
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'outtmpl': output_base,
-                    'postprocessors': [{
-                        'key': 'FFmpegExtractAudio',
-                        'preferredcodec': 'mp3',
-                        'preferredquality': '192',
-                    }],
-                    'quiet': True,
-                    'no_warnings': True,
-                    # Bypass pembatasan YouTube (HTTP 403 Error Fix)
-                    'extractor_args': {
-                        'youtube': {
-                            'player_client': ['mweb', 'ios', 'android']
-                        }
-                    },
-                    'http_headers': {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                    }
-                }
-                
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
+            # 1. Unduh Audio via PyTubeFix (Bypass HTTP 403 Cloud Block)
+            with st.spinner("📥 1/3 Mengunduh audio dari YouTube (via PyTubeFix)..."):
+                yt = YouTube(url, client='MWEB')
+                ys = yt.streams.get_audio_only()
+                ys.download(filename=audio_file)
 
-            if not os.path.exists(mp3_file):
+            if not os.path.exists(audio_file):
                 st.error("❌ Gagal mengunduh audio. Pastikan link YouTube valid.")
             else:
                 # 2. Analisis BPM Menggunakan Librosa
                 with st.spinner("🎼 2/3 Menganalisis tempo (BPM) audio..."):
                     load_duration = None if duration_option == "Penuh (Full Track)" else float(duration_option)
-                    y, sr = librosa.load(mp3_file, duration=load_duration)
+                    y, sr = librosa.load(audio_file, duration=load_duration)
                     
                     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
                     bpm = float(tempo[0]) if hasattr(tempo, "__len__") else float(tempo)
@@ -110,7 +89,7 @@ if st.button("🚀 Analisis BPM & Waveform", type="primary"):
                 with col1:
                     st.metric(label="🥁 Estimated BPM", value=f"{bpm:.1f} BPM")
                 with col2:
-                    st.audio(mp3_file, format="audio/mp3")
+                    st.audio(audio_file, format="audio/mp4")
 
                 st.write("---")
                 st.subheader("📈 Visualisasi Bentuk Gelombang (Waveform)")
@@ -120,9 +99,8 @@ if st.button("🚀 Analisis BPM & Waveform", type="primary"):
             st.error(f"❌ Terjadi kesalahan saat memproses: {str(e)}")
             
         finally:
-            # Pembersihan file sementara
-            if os.path.exists(mp3_file):
+            if os.path.exists(audio_file):
                 try:
-                    os.remove(mp3_file)
+                    os.remove(audio_file)
                 except Exception:
                     pass
