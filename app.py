@@ -11,7 +11,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# Custom CSS for styling
+# Custom Styling
 st.markdown("""
     <style>
     .main-header {
@@ -28,7 +28,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("<h1 class='main-header'>🎵 YouTube BPM Detector</h1>", unsafe_allow_html=True)
-st.write("Masukkan URL video/musik YouTube di bawah ini untuk mengunduh audio dan menganalisis tempo (BPM) serta visualisasi gelombang aurionya.")
+st.write("Masukkan URL video/musik YouTube di bawah ini untuk mengunduh audio, menganalisis tempo (BPM), serta menampilkan visualisasi gelombang audionya.")
 
 url = st.text_input("🔗 URL YouTube:", placeholder="https://www.youtube.com/watch?v=...")
 
@@ -45,7 +45,7 @@ if st.button("🚀 Analisis BPM & Waveform", type="primary"):
         output_base = "temp_audio"
         mp3_file = f"{output_base}.mp3"
         
-        # Clean existing temp file
+        # Hapus file sisa dari proses sebelumnya jika ada
         if os.path.exists(mp3_file):
             try:
                 os.remove(mp3_file)
@@ -53,7 +53,7 @@ if st.button("🚀 Analisis BPM & Waveform", type="primary"):
                 pass
 
         try:
-            # 1. Download Audio using yt-dlp
+            # 1. Unduh Audio via yt-dlp (DILENGKAPI FIX HTTP 403 FORBIDDEN)
             with st.spinner("📥 1/3 Mengunduh audio dari YouTube..."):
                 ydl_opts = {
                     'format': 'bestaudio/best',
@@ -65,14 +65,24 @@ if st.button("🚀 Analisis BPM & Waveform", type="primary"):
                     }],
                     'quiet': True,
                     'no_warnings': True,
+                    # Bypass pembatasan YouTube (HTTP 403 Error Fix)
+                    'extractor_args': {
+                        'youtube': {
+                            'player_client': ['mweb', 'ios', 'android']
+                        }
+                    },
+                    'http_headers': {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                    }
                 }
+                
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
 
             if not os.path.exists(mp3_file):
                 st.error("❌ Gagal mengunduh audio. Pastikan link YouTube valid.")
             else:
-                # 2. Analyze Audio with Librosa
+                # 2. Analisis BPM Menggunakan Librosa
                 with st.spinner("🎼 2/3 Menganalisis tempo (BPM) audio..."):
                     load_duration = None if duration_option == "Penuh (Full Track)" else float(duration_option)
                     y, sr = librosa.load(mp3_file, duration=load_duration)
@@ -80,7 +90,7 @@ if st.button("🚀 Analisis BPM & Waveform", type="primary"):
                     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
                     bpm = float(tempo[0]) if hasattr(tempo, "__len__") else float(tempo)
 
-                # 3. Render Waveform Plot
+                # 3. Visualisasi Grafik Waveform
                 with st.spinner("📊 3/3 Memproses visualisasi waveform..."):
                     fig, ax = plt.subplots(figsize=(10, 3.5), facecolor='none')
                     times = librosa.times_like(y, sr=sr)
@@ -93,7 +103,7 @@ if st.button("🚀 Analisis BPM & Waveform", type="primary"):
                     ax.spines['right'].set_visible(False)
                     plt.tight_layout()
 
-                # Display Results
+                # Tampilkan Hasil ke UI Streamlit
                 st.success("✅ Analisis Selesai!")
                 
                 col1, col2 = st.columns([1, 2])
@@ -110,6 +120,7 @@ if st.button("🚀 Analisis BPM & Waveform", type="primary"):
             st.error(f"❌ Terjadi kesalahan saat memproses: {str(e)}")
             
         finally:
+            # Pembersihan file sementara
             if os.path.exists(mp3_file):
                 try:
                     os.remove(mp3_file)
