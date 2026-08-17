@@ -1,105 +1,61 @@
 import streamlit as st
-import requests
+import crepe
+import soundfile as sf
 import librosa
 import numpy as np
-import matplotlib.pyplot as plt
-import os
-import re
+import pandas as pd
+import tempfile
 
-st.set_page_config(page_title="YouTube Music BPM Finder", page_icon="🎵")
+st.title("Pendeteksi Nada Vokal & Not Musik")
 
-st.title("🎵 YouTube & YT Music BPM Detector")
-st.write("Tempel link lagu dari **YouTube Music** atau **YouTube** untuk mendeteksi BPM secara instan.")
+uploaded_file = st.file_uploader("Unggah stem vokal (.wav atau .mp3)", type=["wav", "mp3"])
 
-raw_url = st.text_input(
-    "🔗 URL YouTube / YouTube Music:", 
-    placeholder="https://music.youtube.com/watch?v=... atau https://youtu.be/..."
-)
+if uploaded_file is not None:
+    st.audio(uploaded_file, format="audio/wav")
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+        tmp_file.write(uploaded_file.read())
+        audio_path = tmp_file.name
 
-duration_option = st.selectbox(
-    "⏱️ Durasi sampel analisis:",
-    options=[30, 60, 90, "Penuh (Full Track)"],
-    index=0
-)
-
-def clean_youtube_url(url):
-    """Mengekstrak ID video dan mengonversi ke URL YouTube standar"""
-    pattern = r"(?:v=|\/([0-9A-Za-z_-]{11})|youtu\.be\/|\/embed\/|\/v\/|watch\?v=|\&v=)([0-9A-Za-z_-]{11})"
-    match = re.search(pattern, url)
-    if match:
-        video_id = match.group(1) or match.group(2)
-        if video_id:
-            return f"https://www.youtube.com/watch?v={video_id}"
-    return url
-
-if st.button("🚀 Analisis BPM", type="primary"):
-    if not raw_url:
-        st.warning("⚠️ Masukkan URL lagu terlebih dahulu.")
-    else:
-        # OTOMATIS BERSIHKAN URL (Buang &si=... dan ubah domain ke youtube.com)
-        clean_url = clean_youtube_url(raw_url)
-        
-        temp_file = "temp_audio.mp3"
-        if os.path.exists(temp_file):
-            try:
-                os.remove(temp_file)
-            except Exception:
-                pass
-
-        try:
-            # 1. Ambil Audio via Public API Proxy
-            with st.spinner("📥 Mengunduh audio trek..."):
-                headers = {
-                    "Accept": "application/json",
-                    "Content-Type": "application/json"
-                }
-                payload = {
-                    "url": clean_url,
-                    "downloadMode": "audio",
-                    "audioFormat": "mp3"
-                }
-                
-                api_res = requests.post("https://api.cobalt.tools/", json=payload, headers=headers, timeout=20)
-                data = api_res.json()
-
-                if "url" in data:
-                    audio_data = requests.get(data["url"]).content
-                    with open(temp_file, "wb") as f:
-                        f.write(audio_data)
-                else:
-                    st.error("❌ Gagal mengambil audio. Coba gunakan tautan lain atau pastikan video tidak di-private.")
-                    st.stop()
-
-            # 2. Analisis BPM dengan Librosa
-            with st.spinner("🎼 Menganalisis tempo (BPM)..."):
-                load_duration = None if duration_option == "Penuh (Full Track)" else float(duration_option)
-                y, sr = librosa.load(temp_file, duration=load_duration)
-                
-                tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-                bpm = float(tempo[0]) if hasattr(tempo, "__len__") else float(tempo)
-
-            # 3. Hasil & Visualisasi Waveform
-            st.success("✅ Selesai!")
+    if st.button("Analisis Nada Vokal"):
+        with st.spinner("Menganalisis frekuensi dan notasi musik..."):
+            audio, sr = sf.read(audio_path)
             
-            col1, col2 = st.columns([1, 2])
+            # Deteksi frekuensi menggunakan CREPE
+            time, frequency, confidence, _ = crepe.predict(
+                audio, sr, viterbi=True, step_size=20, model_capacity='tiny'
+            )
+
+            # Filter data berdasarkan batas confidence (> 0.5)
+            valid_mask = (confidence > 0.5) & (frequency > 50)  # Abaikan frekuensi di bawah 50 Hz
+            
+            times_valid = time[valid_mask]
+            freqs_valid = frequency[valid_mask]
+
+            # 1. Konversi Frekuensi (Hz) ke Not Musik (misal: C4, F#3)
+            notes_valid = librosa.hz_to_note(freqs_valid)
+
+            # 2. Buat DataFrame ringkasan hasil
+            df_results = pd.DataFrame({
+                "Waktu (detik)": np.round(times_valid, 2),
+                "Frekuensi (Hz)": np.round(freqs_valid, 1),
+                "Not Musik": notes_valid
+            })
+
+            # Tampilkan statistik & ringkasan di Streamlit
+            col1, col2 = st.columns(2)
             with col1:
-                st.metric(label="🥁 Estimasi Tempo", value=f"{round(bpm)} BPM")
+                st.metric("Total Sampel Nada", len(df_results))
             with col2:
-                st.audio(temp_file, format="audio/mp3")
+                # Menemukan not yang paling sering dinyanyikan (Dominan)
+                top_note = df_results["Not Musik"].mode()[0] if not df_results.empty else "-"
+                st.metric("Not Paling Dominan", top_note)
 
-            # Plot Waveform
-            fig, ax = plt.subplots(figsize=(8, 2.5), facecolor='none')
-            times = librosa.times_like(y, sr=sr)
-            ax.plot(times, y, color='#FF0000', alpha=0.7, linewidth=0.7)
-            ax.set_axis_off()
-            st.pyplot(fig)
+            # Tampilkan Tabel Data
+            st.subheader("Data Detail Nada Per Detik")
+            st.dataframe(df_results, use_container_width=True)
 
-        except Exception as e:
-            st.error(f"❌ Terjadi kesalahan: {e}")
-            
-        finally:
-            if os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                except Exception:
-                    pass
+            # Tampilkan Grafik Distribusi Not
+            st.subheader("Distribusi Not yang Dinyanyikan")
+            note_counts = df_results["Not Musik"].value_counts()
+            st.bar_chart(note_counts)
